@@ -1,0 +1,134 @@
+name: Telegram Video Ultra 7z
+on:
+  workflow_dispatch:
+    inputs:
+      telegram_url:
+        description: Video URL
+        required: true
+        default: https://t.me/DB_Fans/29
+        type: string
+      variants:
+        description: Number of variants
+        required: true
+        default: all
+        type: choice
+        options: [all, quick]
+      mode:
+        description: Encoding speed
+        required: true
+        default: ultra
+        type: choice
+        options: [ultra, balanced]
+permissions:
+  contents: read
+jobs:
+  compress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg p7zip-full
+          python -m pip install 'yt-dlp' 'telethon>=1.36,<2' 'requests>=2.31,<3'
+      - name: Download and process
+        env:
+          VIDEO_URL: ${{ inputs.telegram_url }}
+          VARIANTS: ${{ inputs.variants }}
+          MODE: ${{ inputs.mode }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+        run: |
+          python scripts/telegram_ultra.py
+      - name: Show sizes
+        if: always()
+        run: |
+          if [ -f output/REPORT.md ]; then cat output/REPORT.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload comparison report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: size-report
+          path: |
+            output/REPORT.md
+            output/results.json
+            output/logs/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload H264 1080p
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: H264-1080p-7z
+          path: output/h264_1080.7z
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - name: Upload H264 720p
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: H264-720p-7z
+          path: output/h264_720.7z
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - name: Upload HEVC 1080p
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEVC-1080p-7z
+          path: output/hevc_1080.7z
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - name: Upload HEVC 720p
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEVC-720p-7z
+          path: output/hevc_720.7z
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - name: Upload HEVC 480p
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: HEVC-480p-7z
+          path: output/hevc_480.7z
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - name: Upload AV1 1080p
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AV1-1080p-7z
+          path: output/av1_1080.7z
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - name: Upload AV1 720p
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AV1-720p-7z
+          path: output/av1_720.7z
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
+      - name: Upload VP9 480p
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: VP9-480p-7z
+          path: output/vp9_480.7z
+          if-no-files-found: ignore
+          compression-level: 0
+          retention-days: 7
