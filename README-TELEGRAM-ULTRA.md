@@ -1,0 +1,56 @@
+# Telegram Video Ultra Compression
+
+This repository contains a manually triggered GitHub Actions workflow for downloading Telegram video posts and generating independently downloadable **7z Ultra** video variants.
+
+**Default link:** https://t.me/DB_Fans/29
+
+## Run
+
+1. Open **Actions**.
+2. Choose **Telegram Video Ultra 7z**.
+3. Select **Run workflow**.
+4. Keep `variants=all` and `mode=ultra` to create eight output formats.
+
+Each successful variant creates a separate GitHub Actions artifact containing a genuine `.7z` archive, encoded with LZMA2 Ultra (`-mx=9 -md=256m -mfb=273`). The workflow also generates a table with **source size, encoded file size, final 7z size and percentage saved** in the run's Summary and in the `size-report` artifact.
+
+| Archive | Video codec | Container | Max height | CRF |
+|---|---|---|---:|---:|
+| h264_1080.7z | H.264 | MP4 | 1080p | 24 |
+| h264_720.7z | H.264 | MP4 | 720p | 28 |
+| hevc_1080.7z | H.265 | MP4 | 1080p | 27 |
+| hevc_720.7z | H.265 | MP4 | 720p | 31 |
+| hevc_480.7z | H.265 | MP4 | 480p | 34 |
+| av1_1080.7z | AV1 | MP4 | 1080p | 32 |
+| av1_720.7z | AV1 | WebM | 720p | 38 |
+| vp9_480.7z | VP9 | WebM | 480p | 40 |
+
+The script does **not upscale** smaller source videos and caps output at 30 fps. Setting `variants=quick` generates only H.264 720p, HEVC 720p and AV1 720p.
+
+## Telegram download access
+
+The workflow first tries authenticated Telegram downloading (when credentials are configured), then `yt-dlp`, then an unauthenticated public Telegram embed preview.
+
+If the public video cannot be accessed anonymously, set these **repository Actions secrets**:
+
+- `TELEGRAM_API_ID`
+- `TELEGRAM_API_HASH`
+- `TELEGRAM_SESSION` — Telethon StringSession
+
+You can generate a StringSession **locally on your own trusted device**:
+
+```python
+from telethon.sync import TelegramClient
+from telethon.sessions import StringSession
+api_id = int(input("Telegram API ID: "))
+api_hash = input("Telegram API hash: ").strip()
+with TelegramClient(StringSession(), api_id, api_hash) as client:
+    print(client.session.save())
+```
+
+Install `telethon` on your own device first. **Never publish the StringSession**: treat it like a password and only store it as an Actions secret. Without download access, the workflow will fail before encoding.
+
+## Notes
+
+Video data is usually already compressed. The main reduction comes from the different video codecs, resolutions and CRF choices, not from 7z. Smaller output sizes can lower visual quality, and no reduction percentage is guaranteed.
+
+GitHub Actions may impose runtime/storage limits; each encoding currently has a 35-minute limit. Artifacts are retained for 7 days.
