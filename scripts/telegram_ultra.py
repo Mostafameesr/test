@@ -30,6 +30,31 @@ def locate():
         except Exception: pass
     return None
 def download():
+    # Use a local video when checking encoder and archive integration on push.
+    local_source=os.getenv("SOURCE_VIDEO_PATH","").strip()
+    if local_source:
+        p=Path(local_source)
+        probe(p)
+        print("Using local video integration-test fixture",p.name,flush=True)
+        return p
+
+    # Optional direct media URL, useful when Telegram hides its large originals.
+    direct_url=os.getenv("DIRECT_MEDIA_URL","").strip()
+    if direct_url:
+        if not direct_url.startswith("https://"):
+            raise ValueError("DIRECT_MEDIA_URL must start with https://")
+        p=WORK/"direct_video.mp4"
+        print("Trying provided HTTPS media URL",flush=True)
+        with requests.get(direct_url,stream=True,timeout=(30,120),
+                          headers={"User-Agent":"Mozilla/5.0"}) as response:
+            response.raise_for_status()
+            if "text/html" in response.headers.get("content-type","").lower():
+                raise RuntimeError("Direct URL returned HTML rather than video")
+            with p.open("wb") as output:
+                for chunk in response.iter_content(chunk_size=2*1024*1024):
+                    if chunk: output.write(chunk)
+        probe(p)
+        return p
     match=re.match(r"^https?://(?:t\.me|telegram\.me)/(?:s/)?([A-Za-z0-9_]+)/(\d+)",URL)
     if match and all(os.getenv(k) for k in ("TELEGRAM_API_ID","TELEGRAM_API_HASH","TELEGRAM_SESSION")):
         try:
@@ -58,6 +83,8 @@ def download():
         session.headers.update({"User-Agent":"Mozilla/5.0","Referer":page})
         html=session.get(page,timeout=45); html.raise_for_status()
         tags=Tags(); tags.feed(html.text)
+        if not tags.urls and ("Media is too big" in html.text or "VIEW IN TELEGRAM" in html.text):
+            print("Telegram preview does not provide video bytes; authenticated session may be required.",flush=True)
         for i,u in enumerate(tags.urls):
             try:
                 video_url=urljoin(page,u)
@@ -96,6 +123,8 @@ def archive(video,key):
     cmd=["7z","a","-t7z","-mx=9","-m0=lzma2","-md=256m","-mfb=273","-mmt=2","-ms=on",str(dst.absolute()),video.name]
     subprocess.run(cmd,cwd=video.parent,check=True,stdout=subprocess.DEVNULL,timeout=1800)
     if not dst.is_file() or dst.stat().st_size==0: raise RuntimeError("7z archive was not created")
+    # Confirm that this is an independently extractable, complete 7z archive.
+    subprocess.run(["7z","t",str(dst.absolute())],check=True,stdout=subprocess.DEVNULL,timeout=300)
     return dst
 def mb(n): return f"{n/1000000:.2f} MB" if n is not None else "—"
 def report(original,rows):
@@ -109,14 +138,31 @@ def report(original,rows):
     (ROOT/"REPORT.md").write_text("\n".join(lines)+"\n",encoding="utf-8")
 def main():
     print("Downloading",URL,flush=True)
-    source=download()
+    try:
+        source=download()
+    except Exception as exc:
+        explanation=(f"# Telegram Ultra 7z — Download failed\n\n"
+            f"**Source:** {URL}\n\n"
+            f"**Error:** {type(exc).__name__}: {exc}\n\n"
+            "The original video may be hidden from Telegram's anonymous web preview. "
+            "Configure \`TELEGRAM_API_ID\`, \`TELEGRAM_API_HASH\` and \`TELEGRAM_SESSION\` "
+            "as GitHub Actions repository secrets, using an account that can view "
+            "the post. Alternatively, provide a direct HTTPS media URL "
+            "through the \`direct_media_url\` workflow input.\n")
+        (ROOT/"REPORT.md").write_text(explanation,encoding="utf-8")
+        (ROOT/"results.json").write_text(json.dumps({"status":"download_failed",
+            "source_url":URL,"error":f"{type(exc).__name__}: {exc}"},indent=2),encoding="utf-8")
+        print(explanation,flush=True)
+        raise
     original=source.stat().st_size
     print("Original:",mb(original),probe(source),flush=True)
     profiles=PROFILES if os.getenv("VARIANTS","all")=="all" else [p for p in PROFILES if p[0] in QUICK]
     rows=[]
     for profile in profiles:
         key,ext,height,crf,audio=profile
-        row={"name":key,"codec":ext,"status":"failed"}
+        actual_codec=("H.264" if key.startswith("h264") else "H.265" if key.startswith("hevc")
+                      else "AV1" if key.startswith("av1") else "VP9")
+        row={"name":key,"codec":actual_codec,"container":ext,"status":"failed"}
         dst=None
         try:
             print("Encoding",key,"ultra",flush=True)
@@ -135,6 +181,8 @@ def main():
             if dst and dst!=source: dst.unlink(missing_ok=True)
             rows.append(row); report(original,rows)
             (ROOT/"results.json").write_text(json.dumps(rows,indent=2),encoding="utf-8")
-    if not any(x["status"]=="OK" for x in rows): raise RuntimeError("All variants failed; inspect artifact logs")
+    failed=[x["name"] for x in rows if x["status"]!="OK"]
+    if failed:
+        raise RuntimeError("Video variants failed: "+", ".join(failed)+". See size-report logs.")
 if __name__=="__main__":
     main()
